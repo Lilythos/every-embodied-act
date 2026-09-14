@@ -1,291 +1,102 @@
-﻿# LeRobot MuJoCo 训练ACT、SmolVLA、Pi0教程
-本仓库提供了一个最小可运行示例：用于采集示教数据，并在自定义数据集上训练（或微调）视觉-语言-动作（VLA）模型。
+一、	项目基本信息
+1.	项目名称：基于every-embodied与ACT的机械臂抓取策略训练与优化实践
+2.	项目持续时间：2026/08/09-2026/08/10
+3.	项目类型：校外组队项目
+4.	项目最终目标：在 MuJoCo 仿真环境中，尝试让经过训练或已训练的 ACT 策略根据图像、末端状态和任务信息输出动作，使机械臂完成接近杯子、夹取、移动、放置和松开夹爪等连续行为。
+二、	问题背景
+1.	问题是什么？
+原始的示例数据较为冗杂，人工采集的过程中不免有停顿和抖动，这些问题可能影响 ACT 策略输出动作的稳定性。。
+2.	为什么值得解决？
+实际生产中希望机械臂是平滑和准确的，因此为了应用到实际生产，必须对原始数据进行处理。
+3.	现有方案有什么不足？
+现有的方案中仿真环境下的机械臂还没有学习数据，只能由人工操控机械臂运动，没有达到自主生成连续运动。
+三、	我的真实角色
+1.	我具体负责哪些模块？
+模块一：ACT 与 MuJoCo 仿真链路接入及运行调试
+模块二：组员训练权重的导入、兼容性测试与现象反馈
+模块三：受 ENPIRE 启发的推理动作保护原型
+2.	每个模块具体做了什么？
+模块一：
+•	在 AI 辅助下梳理 ACT 部署流程：加载 checkpoint，构造图像、末端状态、任务文本和时间戳输入，调用 policy.select_action 输出动作，再交给 MuJoCo 环境执行。
+•	使用 Conda 环境 C:\conda_envs\embodied_env 运行 Notebook 和脚本，并处理 Jupyter 内核选择问题。
+•	运行 ACT 权重加载和 CUDA 设备检查，确认出现过 device=cuda、policy device=cuda:0 的结果。
+•	运行 ACT 训练流程，完成 5000/5000 步训练，反馈 train_loss=0.1280、eval_mae=nan。
+模块二：
+•	导入和测试过多组 ACT checkpoint，例如 demo_act、demo_act_full13、demo_act_full20、demo_act_clean20、demo_act_fixed27、demo_act_fixed47 等版本。
+•	观察并反馈不同权重在仿真中的表现差异，以及同一权重多次运行现象可能不同的问题。
+模块三：
+•	在测试中关注到动作突变、夹爪误松和运行不稳定问题，并提出在 ACT 输出与 MuJoCo 执行之间加入动作保护层。
+•	在 AI 辅助下形成 act_rollout_guard.py 和 run_act_sim_guarded.py。guard 原型包括动作单步变化限制、夹爪锁存、释放条件判断、可选 EMA 平滑和日志记录。
+•	使用 rollout 日志记录原始动作、保护后动作、guard 干预次数、任务是否成功等信息，为后续对照实验提供基础。
+3.	哪些东西可以证明是你做的？
+证据见桌面文件夹every-embodied
+四、	技术路线
+1.	整体路线：
+（1）明确任务：在仿真环境中完成杯子抓取、移动和放置。
+（2）	数据准备：采集或获得示教数据，包括图像、机器人状态、动作、任务文本和可能的力相关信息。
+（3）	数据整理：将数据整理为 LeRobotDataset，包括 parquet、视频/图像、任务描述和统计信息。
+（4）	训练或加载模型：使用 ACT 训练自己的 checkpoint，或加载组员训练好的 checkpoint。
+（5）	部署推理：在 MuJoCo 中读取主视角图像、腕部图像、6维末端位姿、任务文本和时间戳，输入 ACT 策略。
+（6）	动作执行：ACT 输出 7 维动作，经过可选 guard 保护后传入 MuJoCo 环境执行。
+（7）	结果反馈：观察仿真现象，记录日志，分析失败原因，继续测试不同权重、数据版本或推理保护策略。
+2.	我负责哪一段？
+我主要参与了 ACT 模型在 MuJoCo 仿真环境中的部署测试、外部 checkpoint 的导入测试以及运行问题反馈。具体工作包括运行模型加载和仿真推理流程，检查 CUDA 设备、排查环境资源和运行错误，并观察不同权重在仿真中的执行现象。  在此基础上，我提出了在模型输出和仿真环境之间加入动作稳定性保护的想法，并参与了 guard 推理脚本的接入和测试准备。
+3.	为什么采用这个方案？
+采用 ACT 与 MuJoCo 结合的方案，是因为当前项目已经具备 ACT 策略、MuJoCo 仿真环境和 SimpleEnv 控制接口。通过将仿真环境中的图像和末端位姿整理成模型输入，再将 ACT 输出的动作传给仿真环境，可以形成从观察、推理到动作执行的闭环。  
+在推理阶段增加动作保护，是因为测试过程中出现过运行现象不稳定、同一权重前后表现差异较大、夹爪动作可能异常以及机械臂动作突变等问题。因此尝试在模型和环境之间增加动作限幅、夹爪锁存和释放条件判断。这个方案首先作为推理阶段的保护原型使用，不修改模型参数，也不重新训练模型。
+4.	有没有考虑过其他方案？
+暂未。
+5.	最终为什么没有采用？
+暂未。
+五、	最难的问题
+1.	哪个问题让我卡得最久？
+ACT 模型虽然能够加载到 GPU，但接入 MuJoCo 后运行效果不稳定，难以判断问题究竟来自模型权重、输入输出格式、仿真环境、训练数据还是动作执行过程。期间出现过 XML 资源缺失、Jupyter 内核配置、CUDA 非法内存访问、Tabletop 无响应、同一权重运行现象差异较大以及夹爪动作不稳定等问题。
+2.	最开始我认为原因是什么？
+最初我主要怀疑 checkpoint 文件或部署配置不完整，包括权重路径、config.json、模型输入输出和环境接口是否匹配。后来又考虑过训练数据质量、数据清洗、仿真初始化和动作控制对模型效果的影响。
+3.	后来怎么判断这个猜测是否正确？
+我先检查了训练 batch 的字段、形状、数据类型和有限值。结果显示图像、状态和动作的形状符合当前训练流程，浮点数据没有发现 NaN 或 Inf。之后又分阶段测试了 forward、backward 和优化器步骤，这些步骤都能够单独运行。部署时还检查了模型设备，结果为 device = cuda、policy device = cuda:0。此外，通过切换多个 checkpoint、检查 XML 资源和运行仿真测试，观察不同权重和环境状态下的表现。最终没有完全确定唯一根因。
+4.	我尝试过哪些方案？
+方案 1：修复环境和部署配置。
+我检查了 Conda/Jupyter 环境、MuJoCo XML 资源、checkpoint 路径和 CUDA 设备，并尝试补齐缺失的 plate_11 仿真资源。
+结果：
+部分环境和配置问题被定位，模型能够加载到 CUDA 设备并进入推理流程，但 Tabletop 无响应和模型效果不稳定等问题没有被完全解释。
+方案 2：切换不同权重并检查训练数据和训练步骤。
+我尝试测试多个 ACT checkpoint，并检查 batch 的字段、维度、有限值，同时分阶段测试 forward、backward 和 optimizer。
+结果：
+没有发现明显的 NaN 或 Inf，训练的基本计算步骤可以执行，不同权重的运行现象存在差异。组内后续分析认为数据中存在人工采集停顿、动作尖峰或姿态冲突等问题，导致动作出现较大幅度的偏差。
+方案 3：增加推理阶段的动作稳定性保护。
+我提出在 ACT 输出和 MuJoCo 执行之间加入 guard，由它限制机械臂动作变化、锁存夹爪闭合状态，并根据物体和目标位置判断是否允许释放。
+结果：
+项目中形成了 act_rollout_guard.py 和 run_act_sim_guarded.py，并加入了动作和成功状态日志。这个方案能够针对动作突变和夹爪过早释放进行保护，处理过后明显发现测试效果较前面更好，且测试结果更加稳定。
+5.	最终方案是什么？
+当前采用的阶段性方案是保留 ACT 原始推理流程，并在模型输出和 MuJoCo 环境执行之间加入 guard。同时继续使用多个 checkpoint 进行测试，通过数据检查、设备检查和 rollout 日志观察问题。
+6．为什么我认为它有效？
+从机制上看，动作限幅可以减少机械臂单步动作突变，夹爪锁存和释放条件可以降低过早释放的风险，日志则可以帮助区分模型输出问题和环境执行问题。通过多次对照实验，可以看出模型的稳定性有了一定提升。
+六、	实验/测试/验证
+1.	我们怎么判断方案是否有效？
+通过在仿真环境中测试模型的效果，肉眼进行对比判断。
+2.	有没有baseline？
+无 guard 的原始 ACT 推理。
+3.	有没有修改前后的对比？
+在“测试对照视频”中
+4.	有没有失败实验？
+有的，我们测试了很多轮，其中存在的问题包括了夹不起杯子，夹起后脱落，机械臂不停抽搐，移动到位置后机械臂无法把杯子放下等等问题。经过组内分析，失败的原因都在数据中，包括人工采集时中途松手和夹取后停顿，以及处理数据时的动作尖峰和姿态冲突。最后我们采用了最小干预清洗、尖峰用限幅修正代替删帧、采用更多更干净的数据。
+七、	最终结果
+1.	项目是否完成？
+已经完成。
+2.	得到什么量化结果？
+我们是实践出真知的类型，所以结果是训练好的权重和最终的演示结果。
+3.	最终做出了什么实际成果？
+我的产出包括训练/部署脚本、guard 原型、若干 checkpoint 测试材料和演示视频；模型权重中有组员训练版本，个人贡献主要在运行、测试、反馈与问题排查
+八、	项目局限
+1.	数据量太少了，我们从13组、20组、27组到47组，通过观察发现数据量较多的组效果更好。
+2.	得到的权重测试后依旧有不能放到盘子上的概率，稳定性还有待提高。
+3.	只测试了ACT模型，未来还可以测试padding模型。
+九、	我从这个项目真正学到了什么？
+1.	技术能力
+我学会在AI辅助下配置/使用现有 conda 环境运行仿真测试，通过读取config和model.safetensors文件采用别人训练好的权重进行测试，使用jupyter对代码分步测试
+2.工程能力
+了解了从采集数据，数据训练模型到部署模型和环境的整个流程
+2.	研究能力
+学会了通过屏幕录制以及分别标注的方式记录不同的测试以及进行对照实验，对现象进行描述并与目标对比不同来反馈和分析测试内容，认识到只靠肉眼观察不足以证明模型效果，需要保留日志、固定条件、设置 baseline。
 
-## 目录
-- [安装](#安装)
-- [更新计划](#更新计划)
-- [1. 采集示教数据](#1-采集示教数据)
-- [2. 回放数据](#2-回放数据)
-- [3. 训练 Action-Chunking-Transformer（ACT）](#3-训练-action-chunking-transformeract)
-- [4. 部署 ACT 策略](#4-部署-act-策略)
-- [5-6. 语言条件环境中的采集与可视化](#5-6-语言条件环境中的采集与可视化)
-- [模型与数据集](#模型与数据集)
-- [7. 训练与部署 pi_0](#7-训练与部署-pi_0)
-- [8. 训练与部署 SmolVLA](#8-训练与部署-smolvla)
-- [致谢](#致谢)
-
-## 安装
-我们在 **Python 3.10** 上测试通过。
-
-不建议直接使用 `pip install lerobot`，可能会报错。
-
-安装 MuJoCo 相关依赖和 lerobot：
-```bash
-conda create -n py310 python=3.10
-pip install -r requirements.txt
-conda install jupyterlab
-pip install ipywidgets ipykernel
-python -m ipykernel install --user --name py310 --display-name "py310"
-jupyter lab .
-# 在当前目录启动
-
-
-# 如果torch的cuda有问题：
-pip uninstall -y torch torchvision torchaudio
-pip install --no-cache-dir --force-reinstall --index-url https://download.pytorch.org/whl/cu124 torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
-python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
-
-
-```
-
-请确认 MuJoCo 版本为 **3.1.6**。
-
-解压资源文件：
-```bash
-cd asset/objaverse
-unzip plate_11.zip
-```
-
-## 更新计划
-- [x] Viewer 更新
-- [x] 增加多种 mug、plate，对应不同语言指令
-- [x] 增加 pi_0 训练与推理
-- [x] 增加 SmolVLA
-
-## 1. 采集示教数据
-运行 [1.collect_data.ipynb](1.collect_data.ipynb)
-
-在给定环境中采集示教数据。任务是抓起杯子并放到盘子上。当杯子在盘子上、夹爪打开且末端执行器位于杯子上方时，环境判定成功。
-
-<img src="./media/teleop.gif" width="480" height="360">
-
-键位说明：
-- `WASD`：x-y 平面移动
-- `R/F`：z 轴移动
-- `Q/E`：倾斜
-- `方向键`：其余旋转
-- `空格`：切换夹爪状态
-- `Z`：重置环境，并丢弃当前回合缓存数据
-
-叠加图像说明：
-- 右上：Agent 视角
-- 右下：腕部（第一人称）视角
-- 左上：侧视图
-- 左下：俯视图
-
-数据集结构：
-```python
-fps = 20,
-features={
-    "observation.image": {
-        "dtype": "image",
-        "shape": (256, 256, 3),
-        "names": ["height", "width", "channels"],
-    },
-    "observation.wrist_image": {
-        "dtype": "image",
-        "shape": (256, 256, 3),
-        "names": ["height", "width", "channel"],
-    },
-    "observation.state": {
-        "dtype": "float32",
-        "shape": (6,),
-        "names": ["state"], # x, y, z, roll, pitch, yaw
-    },
-    "action": {
-        "dtype": "float32",
-        "shape": (7,),
-        "names": ["action"], # 6 个关节角 + 1 个夹爪
-    },
-    "obj_init": {
-        "dtype": "float32",
-        "shape": (6,),
-        "names": ["obj_init"], # 仅物体初始位置，训练中不使用
-    },
-},
-```
-
-数据默认保存在 `./demo_data` 目录。仓库中已提供示例数据：[demo_data_example](./demo_data_example/)。
-
-## 2. 回放数据
-运行 [2.visualize_data.ipynb](2.visualize_data.ipynb)
-
-<img src="./media/data.gif" width="480" height="360"></img>
-
-在重建后的仿真场景中可视化你的动作。主窗口会回放动作；右上和右下叠加图像来自数据集。
-
-## 3. 训练 Action-Chunking-Transformer（ACT）
-运行 [3.train.ipynb](3.train.ipynb)
-
-**大约需要 30~60 分钟**。
-
-在自定义数据集上训练 ACT。示例中 `chunk_size=10`。
-
-训练好的 checkpoint 会保存在 `./ckpt/act_y`。
-
-可通过与数据集真值动作对比，评估策略误差。
-
-<image src="./media/inference.png"  width="480" height="360">
-
-<details>
-    <summary>PicklingError: Can't pickle &lt;function &lt;lambda&gt;...&gt;</summary>
-如遇 pickling 错误，请将 `num_workers` 设为 `0`，例如：
-
-```python
-dataloader = torch.utils.data.DataLoader(
-    dataset,
-    num_workers=0, # 4
-    batch_size=64,
-    shuffle=True,
-    pin_memory=device.type != "cpu",
-    drop_last=True,
-)
-```
-</details>
-
-## 4. 部署 ACT 策略
-运行 [4.deploy.ipynb](4.deploy.ipynb)
-
-如果没有可用于训练的 GPU，可从 Google Drive 下载 checkpoint：
-- https://drive.google.com/drive/folders/1UqxqUgGPKU04DkpQqSWNgfYMhlvaiZsp?usp=sharing
-
-<img src="./media/rollout.gif" width="480" height="360" controls></img>
-
-## 5-6. 语言条件环境中的采集与可视化
-- [5.language_env.ipynb](5.language_env.ipynb)：键盘遥操作采集数据（键位与第一个环境一致）
-- 1中只采集一条数据，5中采集20条数据，两个任务，红杯子和蓝杯子
-- [6.visualize_data.ipynb](6.visualize_data.ipynb)：可视化已采集数据
-
-**数据示例**
-
-<img src="./media/data_v2.gif" width="480" height="360" controls></img>
-
-## 模型与数据集
-| Model 🤗                                                      | Dataset 🤗                                                    |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [pi_0 finetuned](https://huggingface.co/Jeongeun/omy_pnp_pi0) | [dataset](https://huggingface.co/datasets/Jeongeun/omy_pnp_language) |
-| [smolvla finetuned](https://huggingface.co/Jeongeun/omy_pnp_smolvla) | 同上                                                         |
-
-th>
-  </tr>
-  <tr>
-    <td><a href="https://huggingface.co/datawhale-eai/pi0_datawhale_eai">pi_0 finetuned</a></td>
-    <td><a href="https://huggingface.co/datasets/datawhale-eai/datawhale_eai_pnp_language">datawhale_eai_pnp_language</a></td>
-  </tr>
-  <tr>
-    <td><a href="https://huggingface.co/datawhale-eai/smolvla_datawhale_eai">smolvla finetuned</a></td>
-    <td>同上</td>
-  </tr>
-</table>
-
-## 7. 训练与部署 pi_0
-- [train_model.py](train_model.py)：训练脚本
-- [pi0_datawhale_eai.yaml](pi0_datawhale_eai.yaml)：训练配置
-- [7.pi0.ipynb](7.pi0.ipynb)：部署示例
-
-训练命令：
-```bash
-python train_model.py --config_path pi0_datawhale_eai.yaml
-```
-
-部署效果：
-
-<img src="./media/rollout2.gif" width="480" height="360" controls></img>
-
-训练日志：
-
-<image src="./media/wandb.png"  width="480" height="360">
-
-配置示例：
-```yaml
-dataset:
-  repo_id: datawhale_eai_pnp_language
-  root: ./demo_data_language
-policy:
-  type : pi0
-  chunk_size: 5
-  n_action_steps: 5
-
-save_checkpoint: true
-output_dir: ./ckpt/pi0_datawhale_eai
-batch_size: 16
-job_name : pi0_datawhale_eai
-resume: false
-seed : 42
-num_workers: 8
-steps: 20_000
-eval_freq: -1
-log_freq: 50
-save_checkpoint: true
-save_freq: 10_000
-use_policy_training_preset: true
-
-wandb:
-  enable: true
-  project: pi0_datawhale_eai
-  entity: <your_wandb_entity>
-  disable_artifact: true
-```
-
-## 8. 训练与部署 SmolVLA
-- [train_model.py](train_model.py)：训练脚本
-- [smolvla_datawhale_eai.yaml](smolvla_datawhale_eai.yaml)：训练配置
-- [8.smolvla.ipynb](8.smolvla.ipynb)：部署示例
-
-训练命令：
-```bash
-python train_model.py --config_path smolvla_datawhale_eai.yaml
-```
-
-部署效果：
-
-<img src="./media/rollout3.gif" width="480" height="360" controls></img>
-
-训练日志：
-
-<image src="./media/wandb2.png"  width="480" height="360">
-
-配置示例：
-```yaml
-dataset:
-  repo_id: datawhale_eai_pnp_language
-  root: ./demo_data_language
-policy:
-  type : smolvla
-  chunk_size: 5
-  n_action_steps: 5
-  device: cuda
-
-save_checkpoint: true
-output_dir: ./ckpt/smolvla_datawhale_eai
-batch_size: 16
-job_name : smolvla_datawhale_eai
-resume: false
-seed : 42
-num_workers: 8
-steps: 20_000
-eval_freq: -1
-log_freq: 50
-save_checkpoint: true
-save_freq: 10_000
-use_policy_training_preset: true
-
-wandb:
-  enable: true
-  project: smolvla_datawhale_eai
-  entity: <your_wandb_entity>
-  disable_artifact: true
-```
-
-
-
-后续，我们还会为大家补充展示多条数据训练ACT和diffusion训练抓取实验。敬请期待。
-
-
-
-## 致谢
-
-- Robotis-OMY 机械臂资源来自 [robotis_mujoco_menagerie](https://github.com/ROBOTIS-GIT/robotis_mujoco_menagerie/tree/main)
-- [MuJoco Parser Class](./mujoco_env/mujoco_parser.py) 改自 [yet-another-mujoco-tutorial-v3](https://github.com/sjchoi86/yet-another-mujoco-tutorial-v3)
-- 教程参考了 [lerobot examples](https://github.com/huggingface/lerobot/tree/main/examples)
-- plate 与 mug 资源来自 [Objaverse](https://objaverse.allenai.org/)
