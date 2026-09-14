@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model checkpoints and datasets
+ckpt/
+*.safetensors
+*.pth
+*.pt
+*.bin
+*.zip
+demo_data/
+demo_data_*/
+*.parquet
+
+# Videos and temporary outputs
+*.mp4
+*.gif
+eval_videos/
+media/
+rollout_logs/
+logs_txt/
+*.mjb
+MJDATA.TXT
+MJMODEL.TXT
+screenshot.png
+
+# Cache
+.hf_cache*/
+.hf_home*/
